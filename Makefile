@@ -297,9 +297,13 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
 
+# Set optimization flags for gcc
+FLAGS := -march=armv8-a+crypto -mcpu=cortex-a72.cortex-a53 -mtune=cortex-a72.cortex-a53 -fmodulo-sched -fmodulo-sched-allow-regmoves -fno-gcse-after-reload -fno-tree-vectorize -mlow-precision-recip-sqrt -mpc-relative-literal-loads -ffast-math -O3 -fgraphite -fgraphite-identity -floop-strip-mine -fmodulo-sched-allow-regmoves -ftree-loop-vectorize -ftree-slp-vectorize -fvect-cost-model -fsingle-precision-constant -fpredictive-commoning -Wno-maybe-uninitialized -Wno-misleading-indentation -Wno-array-bounds -Wno-shift-overflow
+GRAPHITE	= -fgraphite-identity -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -floop-flatten
+
 HOSTCC       = $(CCACHE) gcc
 HOSTCXX      = $(CCACHE) g++
-HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -O3 -fomit-frame-pointer -fgcse-las -fgraphite -floop-flatten -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -pipe -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -Wno-unused-variable -Wno-unused-value
+HOSTCFLAGS   = $(GRAPHITE) -Wall -Wmissing-prototypes -Wstrict-prototypes -O3 -fomit-frame-pointer -fgcse-las -fgraphite -floop-flatten -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -pipe -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -Wno-unused-variable -Wno-unused-value
 HOSTCXXFLAGS = -O3 -fgcse-las -fgraphite -floop-flatten -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -pipe
 
 ifeq ($(shell $(HOSTCC) -v 2>&1 | grep -c "clang version"), 1)
@@ -353,13 +357,10 @@ MAKEFLAGS += --include-dir=$(srctree)
 $(srctree)/scripts/Kbuild.include: ;
 include $(srctree)/scripts/Kbuild.include
 
-# Set optimization flags for gcc
-FLAGS := -march=armv8-a+crypto -mcpu=cortex-a72.cortex-a53 -mtune=cortex-a72.cortex-a53 -fmodulo-sched -fmodulo-sched-allow-regmoves -fno-gcse-after-reload -fno-tree-vectorize -mlow-precision-recip-sqrt -mpc-relative-literal-loads -ffast-math -O3 -fgraphite -fgraphite-identity -floop-strip-mine -fmodulo-sched-allow-regmoves -ftree-loop-vectorize -ftree-slp-vectorize -fvect-cost-model -fsingle-precision-constant -fpredictive-commoning -Wno-maybe-uninitialized -Wno-misleading-indentation -Wno-array-bounds -Wno-shift-overflow
-
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld.bfd
-CC		= $(CCACHE) $(CROSS_COMPILE)gcc $(FLAGS)
+CC		= $(CCACHE) $(CROSS_COMPILE)gcc $(FLAGS) $(GRAPHITE)
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -378,11 +379,27 @@ CHECK		= sparse
 # warnings and causes the build to stop upon encountering them.
 #CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 
+# fall back to -march=armv8-a+crypto in case the compiler isn't compatible
+# with -mcpu and -mtune
+ARM_ARCH_OPT := -mcpu=cortex-a72.cortex-a53 -mtune=cortex-a72.cortex-a53
+GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto) \
+ -g0 \
+ -DNDEBUG \
+ -fomit-frame-pointer \
+ -fmodulo-sched \
+ -fmodulo-sched-allow-regmoves \
+ -fivopts
+
+#DISABLED 	    := $(GEN_OPT_FLAGS) -O3 -pipe \
+#		   -ffast-math -fsingle-precision-constant -fsched-spec-load \
+#		   -fpredictive-commoning -fgcse-after-reload -fgcse-sm \
+#		   -fno-pic -mno-android
+
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
 CFLAGS_MODULE   =
 AFLAGS_MODULE   =
-LDFLAGS_MODULE  =
+LDFLAGS_MODULE  = --strip-debug
 CFLAGS_KERNEL	=
 AFLAGS_KERNEL	=
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage -fno-tree-loop-im
@@ -424,10 +441,12 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
                    -funswitch-loops -fpredictive-commoning -fgcse-after-reload \
 		   -fno-aggressive-loop-optimizations \
 		   -fno-delete-null-pointer-checks \
+		   $(GRAPHITE) \
                    -std=gnu89
 
 # GCC 6.1 is too strict
-KBUILD_CFLAGS	+= -Wno-misleading-indentation -Wno-tautological-compare -pipe -fno-pic -O2 -march=armv8-a+crc
+KBUILD_CFLAGS	+= -Wno-misleading-indentation -Wno-tautological-compare -pipe -fno-pic	   
+KBUILD_CFLAGS	+= $(GEN_OPT_FLAGS)
 
 # Snapdragon 820 doesn't need 835769/843419 erratum fixes
 # some toolchain enables those fixes automatically, so opt-out
@@ -649,11 +668,15 @@ KBUILD_CFLAGS	+= $(call cc-option,-fno-PIE)
 KBUILD_AFLAGS	+= $(call cc-option,-fno-PIE)
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,)
+KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
 else ifdef CONFIG_CC_OPTIMIZE_MORE
-KBUILD_CFLAGS	+= -O3 $(call cc-disable-warning,maybe-uninitialized,)
-else ifdef CONFIG_CC_OPTIMIZE_MOST
 KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,)
+else ifdef CONFIG_CC_OPTIMIZE_ALOT
+KBUILD_CFLAGS	+= -O3 $(call cc-disable-warning,maybe-uninitialized,)
+else ifdef CONFIG_CC_OPTIMIZE_FAST
+KBUILD_CFLAGS	+= -Ofast $(call cc-disable-warning,maybe-uninitialized,)
+else
+KBUILD_CFLAGS	+= -O3 $(call cc-disable-warning,maybe-uninitialized,)
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
