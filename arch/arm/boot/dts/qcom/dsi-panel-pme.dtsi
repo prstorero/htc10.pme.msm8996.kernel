@@ -73,6 +73,14 @@
 		qcom,dcs-cmd-by-left;
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 		htc,brt-bl-table = <30 97>, <142 1355>, <255 4095>;
+		cm,mdss-livedisplay-cabc-cmd = [
+				39 00 00 00 00 00 02 55 00];
+		cm,mdss-livedisplay-cabc-ui-value = <0x01>;
+		cm,mdss-livedisplay-cabc-image-value = <0x02>;
+		cm,mdss-livedisplay-cabc-video-value = <0x03>;
+		cm,mdss-livedisplay-command-state = "dsi_lp_mode";
+		cm,mdss-livedisplay-post-cmd = [
+				29 01 00 00 00 00 02 B0 03];
 	};
 
 	dsi_pme_dual_jdi_wqhd_cmd: qcom,mdss_dsi_pme_jdi_wqhd_dualmipi_cmd {
